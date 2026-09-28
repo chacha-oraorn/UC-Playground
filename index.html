@@ -208,6 +208,9 @@
   .tscroll{overflow-x:auto;max-width:100%}
   .outsub{font-size:12.5px;font-weight:600;color:var(--accent);margin:14px 0 2px}
   .sample-note{font-size:12px;color:var(--amber);background:var(--amber-soft);border-radius:6px;padding:4px 9px;display:inline-block;margin-bottom:10px}
+  .sample-wrap{position:relative;border:1.5px dashed #b8bfd0;border-radius:10px;background:var(--line-soft);padding:22px 14px 12px;margin-top:14px}
+  .sample-tag{position:absolute;top:-11px;left:12px;background:var(--card);border:1.5px dashed #b8bfd0;border-radius:999px;padding:1px 10px;font-size:11.5px;font-weight:600;color:var(--muted)}
+  .sample-print{display:none}
   .divider{height:1px;background:var(--line);margin:26px 0}
   .scopenote{background:var(--gray-soft);border-radius:10px;padding:11px 15px;margin:0 0 22px;font-size:12.5px;color:var(--muted);line-height:1.65}
   .scopenote .mocknote{margin:0 0 5px;color:var(--ink-soft)}
@@ -385,6 +388,9 @@
     .ucsec{box-shadow:none}
     /* nothing may hide off the side of a page: scrolling boxes open up, the flow diagram stacks */
     .tscroll,.hflow-wrap{overflow:visible!important}
+    /* a sample is not output: the paper says there is none yet instead of printing invented figures */
+    .sample-wrap{display:none!important}
+    .sample-print{display:block!important;font-size:13px;color:#434a61;border:1px solid #e7e9f1;border-radius:8px;padding:8px 11px;margin-top:8px}
     .hflow{grid-auto-flow:row;grid-template-rows:none;min-width:0}
     .hblock-asis,.hblock-tobe{width:auto}
     .harrow{grid-row:auto;justify-content:center;padding:3px 0;transform:rotate(90deg)}
@@ -1555,13 +1561,15 @@ function collectOutput(){
   const out=document.getElementById("output");
   if(!out || !out.querySelectorAll) return {tables:[],text:""};
   const cell=td=>String(td.innerText||"").replace(/\s+/g," ").trim();
-  const tables=[...out.querySelectorAll("table")].filter(t=>!(t.parentElement&&t.parentElement.closest&&t.parentElement.closest("td"))).map(t=>({
+  // a sample's invented figures are not output — they stay on screen and out of the file
+  const inSample=t=>!!(t.closest&&t.closest(".sample-wrap"));
+  const tables=[...out.querySelectorAll("table")].filter(t=>!(t.parentElement&&t.parentElement.closest&&t.parentElement.closest("td")) && !inSample(t)).map(t=>({
     header:[...t.querySelectorAll(":scope > thead > tr > th")].map(cell),
     rows:[...t.querySelectorAll(":scope > tbody > tr")].map(tr=>[...tr.children].map(cell))
   }));
   let text=String(out.innerText||"");
-  [...out.querySelectorAll(".pickrow")].forEach(p=>{ text=text.replace(p.innerText,""); });
-  return {tables, text:text.replace(/\n{3,}/g,"\n\n").trim()};
+  [...out.querySelectorAll(".pickrow,.sample-wrap")].forEach(p=>{ text=text.replace(p.innerText,""); });
+  return {tables, text:text.replace(/\n{3,}/g,"\n\n").trim(), sample:out.querySelectorAll(".sample-wrap").length>0};
 }
 // The export record. Pure: everything it needs is passed in, so the tests can build one without a page.
 function buildExport(ctx, meta, fileName, output, files, catPick, colPick, now, filesCat){
@@ -1595,6 +1603,8 @@ function buildExport(ctx, meta, fileName, output, files, catPick, colPick, now, 
       filesPromptRenderer:fl.length ? (filesCat||null) : null,
       columnsPicked:Object.assign({},colPick||{}),
       files:fl.map(f=>({ name:f.name, size:f.size==null?null:f.size })),
+      // the screen showed only a format sample (nothing uploaded): its figures are not in tables/text
+      sampleOnly:!!(output||{}).sample && !fl.length,
       tables:(output||{}).tables||[], text:(output||{}).text||"" }
   };
 }
@@ -1874,7 +1884,16 @@ const SAMPLE_SPREAD = `<table style="margin-top:10px"><thead><tr><th>การ�
 // needs two files of different kinds, and one needs a file before its search box does anything.
 function sampleHint(t) { return `<div class="samplehint" style="font-size:12.5px;color:var(--muted);margin:-4px 0 10px">${t}</div>`; }
 
+// Every sample sits in one dashed frame with its own corner label, so a screenshot of any part of it
+// still says "example" — the amber note alone sat above tables that looked exactly like real output.
+// The export and the PDF leave the frame out (collectOutput(), print sheet): before an upload there is
+// no output, and invented figures in a file sent to the consultant read as the client's.
+const SAMPLE_PRINT = `<div class="sample-print">ยังไม่มีผลลัพธ์ — ยังไม่ได้อัปโหลดคำตอบจาก AI chatbot (บนจอแสดงเฉพาะตัวอย่างรูปแบบ)</div>`;
 function sampleShape(cat) {
+  const b = sampleBody(cat);
+  return b ? `<div class="sample-wrap"><span class="sample-tag">ตัวอย่างรูปแบบ</span>${b}</div>` + SAMPLE_PRINT : b;
+}
+function sampleBody(cat) {
   if (cat === "classify") {
     return SAMPLE_NOTE +
       `<table><thead><tr><th>คอลัมน์ที่ใช้จัดกลุ่ม</th><th>จำนวน</th><th>% ของทั้งหมด</th><th>ตัวอย่าง</th></tr></thead><tbody>` +
