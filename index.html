@@ -142,6 +142,9 @@
   .pill-warn{background:var(--amber-soft);color:var(--amber)}
   .pill-bad{background:var(--red-soft);color:var(--red)}
   .pill-neu{background:var(--gray-soft);color:var(--muted)}
+  .pill-hil3{background:var(--brand);color:#fff}
+  .pill-hil2{background:var(--brand-soft);color:var(--brand);box-shadow:inset 0 0 0 1px var(--brand-line)}
+  .pill-hil1{background:var(--card);color:var(--brand);box-shadow:inset 0 0 0 1px var(--brand-line)}
   .confirm-row{display:flex;gap:14px;align-items:center;flex-wrap:wrap}
   .confirm-row>div{flex:1;min-width:260px}
   /* the confirm action: the one big button on the page, at the right edge of its bar (owner's call) */
@@ -174,6 +177,21 @@
   @media(max-width:760px){.rt-arrow{display:none}}
   .need{font-size:13px;color:var(--ink-soft);background:var(--blue-soft);border:1px solid #cfe0f2;border-radius:7px;padding:8px 11px;line-height:1.6}
   .srcline{font-size:12.5px;color:var(--muted);line-height:1.6;padding-top:8px}
+  /* step 0 — output format, above the Prompt it decides */
+  .pick0{background:var(--card);border:2px solid var(--brand);border-radius:11px;padding:13px 16px;margin:0 0 12px}
+  .pick0.slim{border-width:1px;border-color:var(--brand-line);display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:10px 14px;font-size:14px}
+  .p0h{font-weight:700;color:var(--brand);display:flex;align-items:center;gap:8px}
+  .rt-n0{width:22px;height:22px;flex:none;border-radius:50%;background:var(--brand);color:#fff;font-size:12px;font-weight:700;display:inline-flex;align-items:center;justify-content:center}
+  .p0s{font-size:13px;color:var(--ink-soft);margin-top:6px;line-height:1.6}
+  .p0r{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-top:8px}
+  .p0r select{width:auto;min-width:260px;margin:0}
+  .p0m{font-size:12.5px;color:var(--muted);font-weight:400} .p0m a,.p0link{color:var(--blue)}
+  .p0link{margin-left:auto;font-size:13px;text-decoration:none;font-weight:600}
+  .trial{font-size:12px;font-weight:600;background:var(--brand-soft);color:var(--brand);border:1px solid var(--brand-line);border-radius:999px;padding:2px 9px}
+  ul.fmt{margin:10px 0 0;padding-left:18px;font-size:13px;line-height:1.65;color:var(--ink-soft)} ul.fmt b{color:var(--ink)}
+  .rt-step .fn{font-size:11.5px;color:var(--muted);margin-top:6px;word-break:break-all}
+  .rt-dl:disabled{opacity:.55;cursor:not-allowed}
+  @media (max-width:760px){.p0r select{width:100%;min-width:0}.p0link{margin-left:0}}
   .pickrow{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:14px}
   .pickrow>span{font-size:13px;color:var(--ink-soft)}
   .pickrow select{width:auto;min-width:230px;margin:0}
@@ -361,7 +379,7 @@
     @page{margin:14mm 12mm}
     body{background:#fff}
     *{-webkit-print-color-adjust:exact;print-color-adjust:exact}
-    .topbar,#jsonCheck,.pagefoot,.divider,#confirmBar,#ucScope,.route,.need,.pickrow,.flowctl,.exportbar,.pf-filter,.pf-tabs,input,select,button{display:none!important}
+    .topbar,#jsonCheck,.pagefoot,.divider,#confirmBar,#ucScope,.route,.need,.pickrow,#pick0,.flowctl,.exportbar,.pf-filter,.pf-tabs,input,select,button{display:none!important}
     .printhead{display:block;font-size:11px;color:var(--muted);border-bottom:1px solid var(--line);padding-bottom:6px;margin-bottom:10px}
     .main{padding:0;max-width:none}
     .ucsec{box-shadow:none}
@@ -539,7 +557,9 @@ function systemsLabel(ti) {
   if (ti.systemsToIntegrate === "other" && ti.systemsOther) return ti.systemsOther;
   return SYS_LABEL[ti.systemsToIntegrate] || ti.systemsToIntegrate;
 }
-const HIL = {high:["สูง","pill-bad"],medium:["กลาง","pill-warn"],low:["ต่ำ","pill-ok"]};
+// One hue, stronger = more human review. Not red/amber/green: those read as error/warning/fine on this
+// page, which made "high" look like a fault and "low" look like the best answer.
+const HIL = {high:["สูง","pill-hil3"],medium:["กลาง","pill-hil2"],low:["ต่ำ","pill-hil1"]};
 
 /* ============ STATE ============ */
 // var (not let): test.js loads this file via eval() and assigns DATA/UC_LIST/SEL/META directly
@@ -547,6 +567,7 @@ const HIL = {high:["สูง","pill-bad"],medium:["กลาง","pill-warn"],l
 // eval and never receives that assignment. No production behavior depends on this; at script top
 // level in a browser `let`/`var` are equivalent here. Do not "modernize" this back to `let`.
 var DATA=null, UC_LIST=[], SEL=0, META={}, PORT_ALL=[];
+var PROMPT_URL=null; // blob URL behind a#promptDl — revoked by renderUC() before it makes the next one
 // SINGLE_FILE_NAME/PORT_LOADED exist only so setMode() can restore a loaded mode instead of
 // blanking it back to the landing screen — see the comment on setMode() below.
 var SINGLE_FILE_NAME=null, PORT_LOADED=null;
@@ -554,7 +575,7 @@ var RENDER_CATS = new Set(["sequential","search_qa","summarize","extract","class
 const PREVIEW_CAP = 3; // จำนวนตัวอย่างสูงสุดที่โชว์ในหมวดที่จำกัดผล (spec §6)
 function capNote(shown, total) {
   if (total <= shown) return "";
-  return `<div class="box box-gray" style="margin-top:8px;font-size:13px">แสดงตัวอย่าง ${shown} จาก ${total} รายการ — ดูสิ่งที่ต้องเตรียมเพื่อทำเวอร์ชันเต็มในการ์ด <b>Readiness</b> ในส่วนที่ 1 ด้านบน</div>`;
+  return `<div class="box box-gray" style="margin-top:8px;font-size:13px">แสดงตัวอย่าง ${shown} จาก ${total} รายการ — ดูสิ่งที่ต้องเตรียมเพื่อทำเวอร์ชันเต็มในการ์ด <b>สถานะข้อมูล</b> ในส่วนที่ 1 ด้านบน</div>`;
 }
 
 /* ============ FILE PARSING HELPERS (deterministic, client-side) ============ */
@@ -1147,7 +1168,7 @@ function checkJsonShape(data, fileName){
     {key:"task", get:u=>((u.techInput||{}).aiTaskType), label:"techInput.aiTaskType", cost:"จัดเข้าหมวด ทั่วไป — จะไม่มีช่องอัปโหลดและไม่มี Prompt ให้ดาวน์โหลด"},
     {key:"pain", get:u=>((u.business||{}).painAddressed), label:"business.painAddressed", cost:"กล่องปัญหาปัจจุบันและหัวข้อ Pain ใน Prompt จะว่าง"},
     {key:"benefit", get:u=>((u.business||{}).expectedBenefit), label:"business.expectedBenefit", cost:"หัวข้อผลลัพธ์ที่คาดหวังจะว่าง"},
-    {key:"data", get:u=>{const ds=(u.techInput||{}).dataSets; return (Array.isArray(ds)&&ds.length)?ds:null}, label:"techInput.dataSets", cost:"การ์ด Readiness ไม่มีแหล่งข้อมูลให้แสดง"}
+    {key:"data", get:u=>{const ds=(u.techInput||{}).dataSets; return (Array.isArray(ds)&&ds.length)?ds:null}, label:"techInput.dataSets", cost:"การ์ดสถานะข้อมูลไม่มีแหล่งข้อมูลให้แสดง"}
   ];
   per.forEach(p=>{
     const bad = ucs.map((u,i)=>({u,i})).filter(x=>{ const v=p.get(x.u); return !(v && String(v).trim()); });
@@ -1314,8 +1335,10 @@ function renderUC(){
   // readiness
   const sysLabel = systemsLabel(ti);
   if(datasets.length || sysLabel){
-    details+=`<div class="card"><h3>✅ Readiness — ความพร้อมของข้อมูล (${datasets.length} แหล่ง)</h3>
-      <div class="box box-gray" style="margin-bottom:10px;font-size:12.5px">ข้อมูลด้านล่างมาจากที่ทีมกรอกไว้ในเวิร์กช็อป TeamCanvas อาจมีการเปลี่ยนแปลงภายหลัง — ยืนยันกับที่ปรึกษาอีกครั้งก่อนใช้จริง</div>`;
+    // Named for what it is — the team's own statement — not "Readiness": with a ✅ that title read as an
+    // assessment this tool had made, and the tool checks none of access, quality, file shape or integration.
+    details+=`<div class="card"><h3>🗂️ สถานะข้อมูลที่ทีมระบุใน Workshop (${datasets.length} แหล่ง)</h3>
+      <div class="box box-gray" style="margin-bottom:10px;font-size:12.5px">ข้อมูลด้านล่างมาจากที่ทีมกรอกไว้ในเวิร์กช็อป TeamCanvas ยังไม่ได้ตรวจสอบสิทธิ์เข้าถึง คุณภาพข้อมูล โครงสร้างไฟล์ หรือการเชื่อมระบบจริง — ยืนยันกับที่ปรึกษาอีกครั้งก่อนใช้จริง</div>`;
     if(datasets.length){
       details+=`<table><tbody>`;
       datasets.forEach(ds=>{
@@ -1340,10 +1363,6 @@ function renderUC(){
   h+=details;
   h+=`</div></section>`; // /.ucsec-body /#ucDetails
 
-  // chatbot round-trip prompt — .md the user runs in their OWN AI chatbot, external to this tool
-  // (this tool never calls an LLM). null for categories with no data contract (unknown/generate).
-  const promptMd = buildPrompt({biz,val,g,tt,cat,datasets,meta:META,painSpots});
-
   // confirm bar — acknowledge-only gate: the user confirms the UC Details above are correct before
   // seeing the (simulated) UC Playground output. Nothing here becomes editable. This markup is part
   // of renderUC()'s single #main write below; confirmUC() only flips #playground's display and never
@@ -1353,7 +1372,7 @@ function renderUC(){
       <div class="confirm-row">
         <div>
           <b>ตรวจข้อมูลในส่วนที่ 1 — UC Details ด้านบนแล้ว</b><br>
-          <span style="font-size:13px;color:var(--muted)">ปัญหา · แนวทาง AI · ผลลัพธ์ที่คาดหวัง · Guardrail · ความพร้อมข้อมูล · ขั้นตอนการทำงาน — ครบทั้งหมดอยู่ด้านบนแล้ว</span>
+          <span style="font-size:13px;color:var(--muted)">ปัญหา · แนวทาง AI · ผลลัพธ์ที่คาดหวัง · Guardrail · สถานะข้อมูล · ขั้นตอนการทำงาน — ครบทั้งหมดอยู่ด้านบนแล้ว</span>
         </div>
         <button class="accent confirm-go" onclick="confirmUC()">ลองสร้างตัวอย่าง Output →</button>
       </div>
@@ -1372,34 +1391,31 @@ function renderUC(){
   // no step number: there was a "2 Export & Next step" after it until that section was removed
   h+=`<h2>ตัวอย่าง Output ของ Use Case นี้</h2>`;
 
-  // shaped by what this category's renderers can actually consume, not by how many datasets the
-  // workshop happened to declare. One input per dataset implied a per-source contract the renderers
-  // never had: reconcile() wants a CSV+text PAIR whatever the sources are called, and computeForecast()
-  // wants one CSV. The declared sources still matter — they say which files to go and fetch — so they
-  // stay named in the Readiness card.
-  const contract = catContract(cat);
-  // The data contract belongs to the CATEGORY: it is what the downloaded Prompt asks the chatbot to
-  // produce, and checkMockPrecondition() enforces the same shape on the answer that comes back.
-  if(contract){
-    h+=`<div class="need"><b>หมวดนี้ต้องใช้:</b> ${contract.need}<br>
-      <span style="color:var(--muted)">AI chatbot จะถูกขอให้สร้างไฟล์รูปแบบนี้ตาม Prompt ด้านล่าง</span></div>`;
-  }
+  // Step 0 — the output format comes BEFORE the Prompt, and the Prompt follows it (owner's decision
+  // 2026-09-28). The picker used to sit under the output, after the Prompt had been downloaded and run,
+  // so switching format left a Prompt that could never produce the file the new format needs. The
+  // three slots below are filled by renderPlayCtl(), which pickRenderer() re-runs without touching
+  // #main — the upload input and its files survive a change of format.
+  // The data contract ("แบบนี้ต้องใช้") belongs to the chosen format: it is what the Prompt asks the
+  // chatbot to produce, and checkMockPrecondition() enforces the same shape on the answer.
+  h+=`<div id="pick0" class="pick0"></div><div id="needBox"></div>`;
 
   h+=`<div class="route">`;
-  // chatbot mock-up upload — the only upload box now. Gated on the same promptMd condition as before:
-  // a category with no data contract (generate/unknown) has no prompt to run in a chatbot, and neither
-  // of those renderers reads `files` at all, so an upload there would sit unused behind a provenance
-  // banner claiming "simulated" content that never actually changed the output. The download button
-  // lives in this route rather than in the confirm bar — the prompt is built from UC Details, so
-  // confirming those details before carrying the prompt away is the order the confirm step exists for.
-  if(promptMd){
+  // chatbot mock-up upload — the only upload box. Always rendered, shown by renderPlayCtl() only while
+  // the chosen format has a data contract: generate/unknown have no Prompt to run in a chatbot, and
+  // neither of those renderers reads `files`, so an upload there would sit unused behind a banner
+  // claiming "simulated" content that never changed the output. The download button lives in this
+  // route rather than in the confirm bar — the prompt is built from UC Details, so confirming those
+  // details before carrying the prompt away is the order the confirm step exists for.
+  {
     h+=`<div id="upPaneMock">
       <div class="route-note" style="background:var(--amber-soft);border-radius:8px;padding:10px 12px;margin-bottom:11px;color:var(--ink)">
         เครื่องมือนี้<b>ไม่เรียก AI เอง</b> — ดาวน์โหลด Prompt ไปรันใน ChatGPT/Claude ของคุณเอง แล้วนำคำตอบกลับมาอัปโหลด
         · <b>ใช้ดูรูปแบบเท่านั้น ตัวเลขไม่ได้มาจากข้อมูลจริงของท่าน</b></div>
       <div class="rt-steps">
         <div class="rt-step"><div class="rt-n">1</div><div class="rt-h">ดาวน์โหลด Prompt</div>
-          <a class="dl" id="promptDl"><button class="accent rt-dl">⬇️ ดาวน์โหลด Prompt (.md)</button></a></div>
+          <a class="dl" id="promptDl"><button class="accent rt-dl" id="promptBtn">⬇️ ดาวน์โหลด Prompt (.md)</button></a>
+          <div class="fn" id="promptFn"></div></div>
         <div class="rt-arrow">→</div>
         <div class="rt-step"><div class="rt-n">2</div><div class="rt-h">รันใน ChatGPT / Claude ของคุณ</div>
           <div class="rt-t">วาง Prompt แล้วบันทึกคำตอบเป็นไฟล์ตามที่ Prompt บอก</div></div>
@@ -1409,8 +1425,7 @@ function renderUC(){
             <input type="file" id="mockUp" accept=".csv,.txt,.md" multiple class="rt-file" onchange="onMockUpload()"></label></div>
       </div>
     </div>`;
-  } else {
-    h+=`<div class="box box-gray" style="font-size:13px;margin-top:10px">หมวดนี้ไม่มี Prompt สำเร็จรูปให้ดาวน์โหลด — ตัวอย่าง Output ด้านล่างแสดงเฉพาะโครงจากข้อมูล Use Case ที่กรอกไว้จริง ไม่มีเนื้อหาจำลองเพิ่มเติม ไม่มีไฟล์ให้อัปโหลด</div>`;
+    h+=`<div class="box box-gray" id="noPrompt" style="font-size:13px;display:none">รูปแบบนี้ไม่มี Prompt สำเร็จรูปให้ดาวน์โหลด — ตัวอย่าง Output ด้านล่างแสดงเฉพาะโครงจากข้อมูล Use Case ที่กรอกไว้จริง ไม่มีเนื้อหาจำลองเพิ่มเติม ไม่มีไฟล์ให้อัปโหลด</div>`;
   }
   h+=`</div>`; // /.route
 
@@ -1441,12 +1456,7 @@ function renderUC(){
   // customer's own data.
 
   document.getElementById("main").innerHTML=h;
-  window._ucCtx={uc,biz,ti,w5,w6,bmc,val,steps,g,tt,cat,datasets};
-  if(promptMd){
-    const a=document.getElementById("promptDl");
-    a.href=URL.createObjectURL(new Blob([promptMd],{type:"text/markdown"}));
-    a.download=(biz.title||"usecase").replace(/\s+/g,"_")+"_prompt.md";
-  }
+  window._ucCtx={uc,biz,ti,w5,w6,bmc,val,steps,g,tt,cat,datasets,painSpots};
   // renderUC() rewrites #main, so every file input above is recreated empty — the array behind them
   // must be dropped with it. Without this, a mock-up uploaded on one UC keeps its simulated:true flag
   // alive after switching UC, and renderOutput() stamps "ตัวอย่างจำลองจาก AI chatbot" onto output that
@@ -1454,10 +1464,74 @@ function renderUC(){
   window._files=[];
   window._fileRejects=[]; // same stale-state rule as _files above: a refusal from the previous UC must not outlive it
   window._catPick=null;   // and the chosen renderer belongs to the UC that was on screen, not the next one
+  window._pickOpen=false; // the "ลองรูปแบบอื่น" disclosure starts closed on every UC
+  window._filesCat=null;  // which format's Prompt the uploaded files answered — set by onMockUpload()
   window._colPick=null;   // likewise the chosen columns — they name columns in the previous UC's file
   wireMockDrop();
+  renderPlayCtl();
   renderOutput(); // initial (no uploads)
 }
+
+// Step 0, the data contract line and the Prompt link — everything in the playground that depends on the
+// chosen format except the output itself. Re-run by pickRenderer(); writes only its own three slots,
+// never #main, so the upload input (and window._files) survive a change of format.
+// Agent/Decide has no default: those task types say how the AI works alongside people, not what it does
+// with the data, so preselecting "เทียบ/รวบรวมเอกสาร" read as the UC's own format when it was only the
+// code's. Every other category starts on its own format, with the others behind "ลองรูปแบบอื่น".
+function renderPlayCtl(){
+  const c=window._ucCtx||{}, ucCat=c.cat, cat=effectiveCat(ucCat), must=catIsAmbiguous(ucCat);
+  const trial=!must && cat!==ucCat, open=must || trial || !!window._pickOpen;
+  const own=CAT_PICKER_LABEL[ucCat]||CAT_LABEL[ucCat]||ucCat;
+  const box=document.getElementById("pick0");
+  if(box){
+    const ownTag=k=>!must&&k===ucCat?" (ตรงกับหมวดของ UC)":"";
+    // generate/unknown are not pickable formats, so their own format is the empty value
+    const first=must ? `<option value=""${cat?"":" selected"}>— เลือกรูปแบบ Output —</option>`
+      : CAT_PICKABLE.indexOf(ucCat)===-1 ? `<option value=""${cat===ucCat?" selected":""}>${esc(own)} (ตรงกับหมวดของ UC)</option>` : ``;
+    const sel=`<select onchange="pickRenderer(this.value)">${first}`+
+      CAT_PICKABLE.map(k=>`<option value="${k}"${k===cat?" selected":""}>${esc(CAT_PICKER_LABEL[k])}${ownTag(k)}</option>`).join("")+`</select>`;
+    let h;
+    if(must){
+      h=`<div class="p0h"><span class="rt-n0">0</span>เลือกรูปแบบ Output ที่อยากเห็น</div>
+        <div class="p0s">หมวด <b>${esc(c.tt==="decide"?"Decide":"Agent")}</b> บอกว่า AI ทำงานร่วมกับคนอย่างไร ไม่ได้บอกว่าทำอะไรกับข้อมูล — เลือกรูปแบบที่ใกล้กับงานของ Use Case นี้ที่สุด แล้ว Prompt จะสร้างตามแบบนั้น</div>
+        <div class="p0r">${sel}${cat?`<span class="p0m">Prompt ด้านล่างสร้างตามแบบนี้ · เปลี่ยนได้</span>`:``}</div>`+
+        (cat?``:`<ul class="fmt">${CAT_PICKABLE.map(k=>`<li><b>${esc(CAT_PICKER_LABEL[k])}</b> — ${esc(FORMAT_FIT[k])}</li>`).join("")}</ul>`)+
+        (Object.keys(c.steps||{}).length?`<div class="p0s" style="margin-top:8px">➤ ลำดับขั้นตอนงานจริงของ Use Case นี้ อยู่ในแผนภาพ As-is / To-be ในส่วนที่ 1 ด้านบน</div>`:``);
+    } else if(!open){
+      h=`<span class="rt-n0">0</span><span>รูปแบบ Output: <b>${esc(own)}</b> <span class="p0m">(ตามหมวดที่ทีมเลือก)</span></span>
+        <a class="p0link" href="javascript:void 0" onclick="pickOpen()">ลองรูปแบบอื่น ▾</a>`;
+    } else {
+      h=`<div class="p0h"><span class="rt-n0">0</span>รูปแบบ Output</div>
+        <div class="p0r">${sel}`+(trial?`<span class="trial">ทดลองรูปแบบอื่น</span><span class="p0m">หมวดของ UC นี้คือ ${esc(own)} · <a href="javascript:void 0" onclick="pickBack()">กลับไปแบบของ UC</a></span>`:``)+`</div>`+
+        (trial&&FORMAT_FIT[cat]?`<div class="p0s">${esc(FORMAT_FIT[cat])}</div>`:``);
+    }
+    box.className="pick0"+(!must&&!open?" slim":"");
+    box.innerHTML=h;
+  }
+  const contract=cat?catContract(cat):null;
+  const needEl=document.getElementById("needBox");
+  if(needEl) needEl.innerHTML=contract?`<div class="need"><b>แบบนี้ต้องใช้:</b> ${contract.need}<br>
+      <span style="color:var(--muted)">Prompt ด้านล่างขอให้ AI chatbot สร้างไฟล์รูปแบบนี้</span></div>`:``;
+  // chatbot round-trip prompt — .md the user runs in their OWN AI chatbot, external to this tool
+  // (this tool never calls an LLM). Built for the CHOSEN format; none for a format with no data contract.
+  const md=contract?buildPrompt({biz:c.biz,val:c.val,g:c.g,tt:c.tt,cat,datasets:c.datasets,meta:META,painSpots:c.painSpots}):null;
+  // one Prompt blob alive at a time
+  if(PROMPT_URL){ URL.revokeObjectURL(PROMPT_URL); PROMPT_URL=null; }
+  const pane=document.getElementById("upPaneMock"), none=document.getElementById("noPrompt");
+  if(pane&&pane.style) pane.style.display=(md||must)?"":"none";
+  if(none&&none.style) none.style.display=(!md&&!must)?"":"none";
+  const a=document.getElementById("promptDl"), btn=document.getElementById("promptBtn"), fn=document.getElementById("promptFn");
+  if(a){
+    if(md){
+      a.href=PROMPT_URL=URL.createObjectURL(new Blob([md],{type:"text/markdown"}));
+      a.download=((c.biz||{}).title||"usecase").replace(/\s+/g,"_")+(cat!==ucCat?"_"+cat:"")+"_prompt.md";
+    } else if(a.removeAttribute) a.removeAttribute("href"); else a.href="";
+  }
+  if(btn){ btn.disabled=!md; btn.textContent=md?`⬇️ ดาวน์โหลด Prompt — ${CAT_PICKER_LABEL[cat]} (.md)`:`⬇️ ดาวน์โหลด Prompt (.md)`; }
+  if(fn) fn.textContent=md?(a&&a.download||""):must?"เลือกรูปแบบในขั้น 0 ก่อน":"";
+}
+function pickOpen(){ window._pickOpen=true; renderPlayCtl(); }
+function pickBack(){ window._catPick=null; window._pickOpen=false; renderPlayCtl(); renderOutput(); }
 
 // confirm bar acknowledgement — visibility-only. Never writes #main (see the [P4-3] one-write guard);
 // switching UC re-runs renderUC(), which re-emits #playground with display:none, so the gate reset
@@ -1487,10 +1561,12 @@ function collectOutput(){
   return {tables, text:text.replace(/\n{3,}/g,"\n\n").trim()};
 }
 // The export record. Pure: everything it needs is passed in, so the tests can build one without a page.
-function buildExport(ctx, meta, fileName, output, files, catPick, colPick, now){
+function buildExport(ctx, meta, fileName, output, files, catPick, colPick, now, filesCat){
   const c=ctx||{}, biz=c.biz||{}, ti=c.ti||{}, g=c.g||{}, val=c.val||{}, bmc=c.bmc||{}, m=meta||{};
   const painSpots=((DATA||{}).w2_critique||{}).painSpots||[];
-  const renderer=(catPick && CAT_PICKABLE.indexOf(catPick)!==-1) ? catPick : c.cat;
+  // agent/decide has no default format, so "is this the UC's default" has no answer there (null)
+  const noDefault=catIsAmbiguous(c.cat);
+  const renderer=(catPick && CAT_PICKABLE.indexOf(catPick)!==-1) ? catPick : (noDefault ? null : c.cat);
   const fl=files||[];
   const steps=computeFlowSteps(ucJobMap(), c.steps)||[];
   return {
@@ -1509,18 +1585,28 @@ function buildExport(ctx, meta, fileName, output, files, catPick, colPick, now){
       systems:systemsLabel(ti)||null,
       steps:steps.map(s=>({ step:s.key, label:s.label, asIs:s.asIs, toBe:s.toBe, doer:s.doer })) },
     output:{ uploaded:fl.length>0, simulated:fl.some(f=>f.simulated),
-      renderer, rendererIsUcDefault:renderer===c.cat, columnsPicked:Object.assign({},colPick||{}),
+      renderer, rendererIsUcDefault:noDefault ? null : renderer===c.cat,
+      // the Prompt follows the chosen format, so this is also the Prompt the page offered
+      promptRenderer:renderer && catContract(renderer) ? renderer : null,
+      // which format's Prompt the uploaded files answered — differs from renderer after a switch
+      filesPromptRenderer:fl.length ? (filesCat||null) : null,
+      columnsPicked:Object.assign({},colPick||{}),
       files:fl.map(f=>({ name:f.name, size:f.size==null?null:f.size })),
       tables:(output||{}).tables||[], text:(output||{}).text||"" }
   };
 }
 function exportFileBase(){ return String(((window._ucCtx||{}).biz||{}).title||"usecase").replace(/[\\/:*?"<>|]+/g,"").replace(/\s+/g,"_"); }
-function exportJSON(){
-  const data=buildExport(window._ucCtx, META, SINGLE_FILE_NAME, collectOutput(), window._files, window._catPick, window._colPick);
-  const a=document.createElement("a");
-  a.href=URL.createObjectURL(new Blob([JSON.stringify(data,null,2)],{type:"application/json"}));
-  a.download=exportFileBase()+"_export.json";
+// The URL is revoked after the click has had time to start the download — revoking in the same tick
+// cancels it in some browsers.
+function downloadJSON(data, name){
+  const a=document.createElement("a"), u=URL.createObjectURL(new Blob([JSON.stringify(data,null,2)],{type:"application/json"}));
+  a.href=u; a.download=name;
   document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(()=>{ if(u) URL.revokeObjectURL(u); }, 1000);
+}
+function exportJSON(){
+  downloadJSON(buildExport(window._ucCtx, META, SINGLE_FILE_NAME, collectOutput(), window._files, window._catPick, window._colPick, undefined, window._filesCat),
+    exportFileBase()+"_export.json");
 }
 // Print, not a PDF library: the print stylesheet below drops section 3, the controls and the upload
 // route, and every collapsed row is opened for the paper and closed again afterwards.
@@ -1626,6 +1712,8 @@ function onMockUpload(){
   if(!fl||!fl.length) return;
   const screened=screenUploads(fl);
   const rejects=screened.reject.slice();
+  // the format on screen when the user chose the files — the Prompt they will have run
+  const fmt=effectiveCat((window._ucCtx||{}).cat);
   setUploadBusy(true);
   const jobs=screened.accept.map(f=>readAsRecord(f, true));
   Promise.all(jobs).then(records=>{
@@ -1634,7 +1722,8 @@ function onMockUpload(){
     // an upload where nothing survived must not wipe what is already on screen. window._files is what
     // renderOutput() renders from, so a refused .pdf still blanked a good chatbot sample and left the
     // user with a red box and no output. Keep what was there; the refusal is reported beside it.
-    if(good.length) window._files=good;
+    // ...and remember which format's Prompt these answer, so a later change of format can say so
+    if(good.length){ window._files=good; window._filesCat=fmt; }
     setUploadBusy(false);
     renderOutput();
   });
@@ -1781,9 +1870,6 @@ const SAMPLE_SPREAD = `<table style="margin-top:10px"><thead><tr><th>การ�
 // thing" is not, now that the amber note says exactly that. So only two categories keep a hint: one
 // needs two files of different kinds, and one needs a file before its search box does anything.
 function sampleHint(t) { return `<div class="samplehint" style="font-size:12.5px;color:var(--muted);margin:-4px 0 10px">${t}</div>`; }
-// on a UC with nothing to upload (see the end of renderOutput) the note says so and the hint goes
-const SAMPLE_NOTE_NO_UPLOAD = `<div class="sample-note">ตัวอย่างรูปแบบ (sample) ของ output แบบนี้ — Use Case นี้ไม่มีไฟล์ให้อัปโหลด จึงแสดงได้เฉพาะรูปแบบ</div>`;
-const SAMPLE_HINT_RX = /<div class="samplehint"[^>]*>[\s\S]*?<\/div>/g;
 
 function sampleShape(cat) {
   if (cat === "classify") {
@@ -1829,7 +1915,7 @@ function sampleShape(cat) {
       `<div class="outsub">คอลัมน์ที่มีแค่ 2 ค่า — มักเป็นธงข้อยกเว้นหรือรายการที่ต้องตรวจ</div>` +
       `<table style="margin-top:6px"><thead><tr><th>คอลัมน์ที่มี 2 ค่า</th><th>ค่า</th><th>จำนวน</th><th>% ของทั้งหมด</th></tr></thead><tbody>` +
       `<tr><td rowspan="2" style="font-weight:600">ชื่อคอลัมน์ที่ 4</td><td>ค่าที่ 1</td><td>18</td><td>14.1%</td></tr><tr><td>ค่าที่ 2</td><td>110</td><td>85.9%</td></tr></tbody></table>` +
-      `<div class="box box-gray" style="margin-top:8px;font-size:13px">แสดงตัวอย่าง 1 จาก 128 รายการ — ดูสิ่งที่ต้องเตรียมเพื่อทำเวอร์ชันเต็มในการ์ด <b>Readiness</b> ในส่วนที่ 1 ด้านบน</div>` +
+      `<div class="box box-gray" style="margin-top:8px;font-size:13px">แสดงตัวอย่าง 1 จาก 128 รายการ — ดูสิ่งที่ต้องเตรียมเพื่อทำเวอร์ชันเต็มในการ์ด <b>สถานะข้อมูล</b> ในส่วนที่ 1 ด้านบน</div>` +
       SAMPLE_FOOT;
   }
   if (cat === "sequential") {
@@ -2291,36 +2377,31 @@ function checkMockPrecondition(cat, files) {
 
 function renderOutput(){
   const {cat:ucCat,tt,steps,datasets}=window._ucCtx;
-  // everything below renders the CHOSEN operation; ucCat stays the UC's own category, which is what
-  // the picker is offered for and what the upload contract and the downloadable prompt still follow
+  // everything below renders the CHOSEN format (step 0), which the downloadable Prompt now follows too;
+  // ucCat stays the UC's own category
   const cat=effectiveCat(ucCat);
-  const files=window._files||[];
   const out=document.getElementById("output"); if(!out) return;
+  // an agent/decide UC before its format is chosen: nothing to render yet
+  if(!cat){ out.innerHTML=`<div class="box box-gray" style="font-size:13px">เลือกรูปแบบในขั้น 0 ด้านบน แล้วตัวอย่าง Output จะแสดงที่นี่</div>`; return; }
+  // A format with no data contract (generate/unknown) never reads files — an upload made under another
+  // format stays in window._files for when the user switches back, but must not stamp "simulated"
+  // onto output that was built from the workshop fields alone.
+  const allFiles=window._files||[], files=catContract(cat)?allFiles:[];
   const hasFiles=files.length>0;
+  // which format's Prompt the uploaded files answered (null when files were set without an upload)
+  const fc=window._filesCat||null, fromOther=hasFiles && !!fc && fc!==cat;
   let h="";
+  if(allFiles.length && !files.length)
+    h+=`<div class="box box-gray" style="margin-bottom:12px;font-size:13px">ไฟล์ที่อัปโหลดไว้ไม่ได้ใช้กับรูปแบบนี้ — รูปแบบนี้แสดงเฉพาะโครงจากข้อมูล Use Case</div>`;
 
-  // The renderer picker is offered on EVERY use case, not only the ambiguous agent/decide ones. It was
-  // built to resolve that one ambiguity, so it was gated to it — but the same control is what makes
-  // this a playground: 36 of 69 use cases previously had no way to look at their data any other way.
-  // The default stays the category TeamCanvas assigned, so leaving it alone changes nothing.
-  // Only agent/decide gets the explanation, because only there is choosing unavoidable.
-  if(catIsAmbiguous(ucCat)){
-    h+=`<div class="box box-blue" style="margin-bottom:12px;font-size:13px;line-height:1.7">
-      <b>ทำไมต้องเลือกเอง?</b><br>
-      หมวด <b>Agent / Decide</b> บอกว่า AI ทำงานร่วมกับคนอย่างไร ไม่ได้บอกว่าทำอะไรกับข้อมูล
-      เครื่องมือจึง<b>ไม่เดาแทนท่าน</b> ให้เลือกว่าอยากเห็นตัวอย่างผลลัพธ์แบบไหน
-      ${Object.keys(steps||{}).length ? `<br>➤ <b>ลำดับขั้นตอนงานจริงของ Use Case นี้ อยู่ในแผนภาพ As-is / To-be ในส่วนที่ 1 ด้านบน</b>` : ``}</div>`;
-  }
-  h+=`<div class="pickrow"><span>อยากเห็นตัวอย่าง Output แบบไหน</span>
-      <select onchange="pickRenderer(this.value)">${CAT_PICKABLE.map(k=>`<option value="${k}"${k===cat?" selected":""}>${esc(CAT_PICKER_LABEL[k])}</option>`).join("")}</select>`+
-    (cat!==ucCat?`<span style="font-size:12px;color:var(--muted)">· หมวดเดิมของ UC นี้คือ ${esc(CAT_PICKER_LABEL[ucCat]||ucCat)}</span>`:``)+`</div>`;
-
-  // The chosen renderer may need a file shape the UC's own prompt never asks for (a classify use case
-  // asks the chatbot for a CSV; picking the document-reconciliation renderer needs a text file beside
-  // it). Say so plainly and leave the choice available — the ruling is that a missing input is named,
-  // not that the option is taken away. The .md prompt deliberately does NOT follow the picker: it is a
-  // file the user has already downloaded and run, and it belongs to the use case, not to this control.
-  {
+  // Files made by the Prompt of another format: say which, and the way on — download the new Prompt.
+  // That way on now exists, because the Prompt follows the pick. Otherwise, a chosen format that needs
+  // a file kind the upload lacks is named, and the choice stays available (a missing input is named,
+  // not taken away).
+  if(fromOther){
+    h+=`<div class="box box-amber" style="margin-bottom:12px;font-size:13px">ไฟล์ที่อัปไว้สร้างจาก Prompt แบบ <b>${esc(CAT_PICKER_LABEL[fc]||fc)}</b> — แบบที่เลือกตอนนี้ (${esc(CAT_PICKER_LABEL[cat])}) ต้องใช้ ${esc(catContract(cat).need.replace(/<[^>]+>/g,""))}`+
+      `<div style="color:var(--ink);margin-top:4px">ดาวน์โหลด Prompt ใหม่ในขั้นที่ 1 ด้านบน แล้วอัปโหลดคำตอบใหม่</div></div>`;
+  } else {
     const need=catContract(cat);
     if(need && hasFiles){
       const miss=[];
@@ -2370,12 +2451,12 @@ function renderOutput(){
       ⚠️ <b>ตัวอย่างจำลองจาก AI chatbot ภายนอก</b> · ไม่ใช่ข้อมูลจริงของท่าน · ตัวเลขไม่ได้นับจากไฟล์ของท่าน · ใช้ดูรูปแบบเท่านั้น</div>`;
     // [P4-5] precondition message — visually distinct from the banner above, and never suppresses
     // the renderer output below: the user should still see whatever the renderer could manage.
-    // ucCat, not cat: this message tells the user to re-run the downloaded Prompt, and that prompt is
-    // built from the UC's own category. Checking the CHOSEN renderer's contract instead produced a
-    // dead end — pick "forecast" on an agent UC and it demanded a numeric column that the sequential
-    // prompt never asks the chatbot for, so re-running it could never satisfy the warning. The chosen
-    // renderer's own fallback already says what it could not do with the file.
-    const precheck = checkMockPrecondition(ucCat, files);
+    // Checked against the format whose Prompt made the files. This message tells the user to re-run
+    // that Prompt, which can only help when it is the Prompt of the format on screen: when the Prompt
+    // stayed with the UC's category, checking the chosen format was a dead end (I3 — "forecast" on an
+    // agent UC demanded a numeric column the sequential prompt never asks for). Files from another
+    // format's Prompt get the "download the new Prompt" box above instead.
+    const precheck = fromOther ? null : checkMockPrecondition(cat, files);
     if (precheck) h += `<div class="box box-red" style="margin-bottom:12px">${esc(precheck)}</div>`;
   }
 
@@ -2511,7 +2592,7 @@ function renderOutput(){
           const share={}; groupAggregate(rows,r.groupCol,null).groups.forEach(g=>share[g.name]=g.pct);
           r.groups.forEach(g=>{h+=`<tr><td style="font-weight:600">${esc(g.name)}</td><td>${g.count}</td><td>${fmtNum(share[g.name])}%</td><td>${g.sample.map(recordCellHtml).join("")}${g.count>g.sample.length?`<div style="color:var(--muted);font-size:12px">และอีก ${g.count-g.sample.length} แถว</div>`:""}</td></tr>`;});
           const anyCapped = r.groups.some(g => g.count > g.sample.length);
-          h += `</tbody></table></div>` + (anyCapped ? `<div class="box box-gray" style="margin-top:8px;font-size:13px">บางกลุ่มแสดงตัวอย่างสูงสุด ${PREVIEW_CAP} รายการต่อกลุ่ม — ดูสิ่งที่ต้องเตรียมเพื่อทำเวอร์ชันเต็มในการ์ด <b>Readiness</b> ในส่วนที่ 1 ด้านบน</div>` : ``);
+          h += `</tbody></table></div>` + (anyCapped ? `<div class="box box-gray" style="margin-top:8px;font-size:13px">บางกลุ่มแสดงตัวอย่างสูงสุด ${PREVIEW_CAP} รายการต่อกลุ่ม — ดูสิ่งที่ต้องเตรียมเพื่อทำเวอร์ชันเต็มในการ์ด <b>สถานะข้อมูล</b> ในส่วนที่ 1 ด้านบน</div>` : ``);
           // Totals per group, as a second table rather than more columns on the first: the group that
           // contributes the most in total is often not the one with the highest average — on the ops
           // fixture the largest total belongs to one region and the largest average to another — so
@@ -2589,10 +2670,10 @@ function renderOutput(){
           // "เพิ่มขึ้น 12%" under a forecast cone. So no halves, no %, no chart — say why, and keep the
           // spread, which is a fact about the file whatever its order.
           if(!listTimeColumns(cols,rows).length){
-            const notForecastUC = ucCat!=="forecast";
+            const fromListPrompt = !!fc && fc!=="forecast";
             h+=`<div class="box box-amber" style="font-size:13px"><b>ไฟล์นี้ไม่มีคอลัมน์วันที่หรือช่วงเวลา จึงดูแนวโน้มไม่ได้</b>`+
               `<div style="margin-top:4px">การดูแนวโน้มต้องใช้ค่าเดียวกันที่วัดซ้ำตามเวลา เช่น 1 แถวต่อ 1 เดือน — ในไฟล์นี้ลำดับแถวไม่ใช่ลำดับเวลา`+
-              (notForecastUC?`<br>Prompt ของ Use Case นี้ (หมวด${esc(CAT_LABEL[ucCat]||ucCat)}) ขอข้อมูลเป็นรายการ ไม่ได้ขอข้อมูลตามเวลา`:``)+
+              (fromListPrompt?`<br>ไฟล์นี้สร้างจาก Prompt แบบ${esc(CAT_PICKER_LABEL[fc]||fc)} ซึ่งขอข้อมูลเป็นรายการ ไม่ได้ขอข้อมูลตามเวลา`:``)+
               `<br>รูปแบบวันที่ที่อ่านได้: <code>2025-01</code> · <code>2025-01-15</code> · <code>15/01/2025</code> · <code>2025</code></div></div>`+
               spreadBlock(columnNumbers(rows,r.col),r.col,0)+`</div>`;
             return;
@@ -2620,7 +2701,7 @@ function renderOutput(){
     h+=`<h3>สร้างเนื้อหา — โครงเอกสาร</h3>`;
     const rows=computeGenerateSkeleton(window._ucCtx.biz);
     h+=`<table><tbody>`+rows.map(r=>`<tr><td style="font-weight:600;width:35%">${esc(r.label)}</td><td${r.real?"":` style="color:var(--faint);font-style:italic"`}>${esc(r.value)}</td></tr>`).join("")+`</tbody></table>`;
-    h+=`<div class="box box-gray" style="margin-top:10px">ตัวอย่างนี้ประกอบจาก field จริงของ Use Case นี้ ส่วนเนื้อหาที่ต้องแต่งขึ้นจริง (แถวสุดท้าย) เป็นส่วนที่ต้อง implement ร่วมกับที่ปรึกษา — ดูการ์ด Readiness ในส่วนที่ 1 ด้านบนสำหรับสิ่งที่ต้องเตรียม</div>`;
+    h+=`<div class="box box-gray" style="margin-top:10px">ตัวอย่างนี้ประกอบจาก field จริงของ Use Case นี้ ส่วนเนื้อหาที่ต้องแต่งขึ้นจริง (แถวสุดท้าย) เป็นส่วนที่ต้อง implement ร่วมกับที่ปรึกษา — ดูการ์ดสถานะข้อมูลในส่วนที่ 1 ด้านบนสำหรับสิ่งที่ต้องเตรียม</div>`;
   }
   else {
     // unknown category (AI task type not recognized) — input contract + CTA, no dedicated renderer planned
@@ -2635,12 +2716,9 @@ function renderOutput(){
     h+=`<div class="box box-blue" style="margin-top:12px"><b>รูปแบบผลลัพธ์ที่คาดหวัง:</b> ${esc((window._ucCtx.biz.expectedBenefit)||"—")}</div>`;
   }
 
-  // A UC whose own category has no data contract (generate/unknown) has no Prompt and no upload box,
-  // yet the picker still lets its user look at the other outputs. Those samples promised "ค่าจริงมาเมื่อ
-  // อัปโหลดไฟล์" and pointed at an upload box that is not on the page — a dead end. Here they say what
-  // they are instead.
-  if(!catContract(ucCat) && cat!==ucCat) h=h.split(SAMPLE_NOTE).join(SAMPLE_NOTE_NO_UPLOAD).replace(SAMPLE_HINT_RX,"");
-
+  // (A sample's "ค่าจริงมาเมื่ออัปโหลดไฟล์" used to be rewritten here for generate/unknown UCs, which had
+  // no upload box while showing another format's sample. The upload box and Prompt now follow the
+  // chosen format, so every sample that promises an upload has one on the page.)
   out.innerHTML=h;
 }
 function doSearch(){
@@ -2682,8 +2760,8 @@ function searchSummary(total,units,shown,word){
 // aiTaskType mixes two levels: search/summarize/extract/classify/recommend/predict/generate name a
 // DATA OPERATION, while agent/decide name how the AI works alongside a person and say nothing about
 // what happens to the data. Both land on `sequential` (33 of the corpus's 69 UC), which then demos
-// one operation — cross-document reconcile. That fits "BOQ Auto-Compiler" and "Product Matching"
-// and not "Grease Penetration Calculator" or "Predictive-MA", and no field in the export says which.
+// one operation — cross-document reconcile. That fits a UC that matches records against documents,
+// and not one that calculates a value or predicts a failure, and no field in the export says which.
 // Rather than guess from free text, the page says so and hands the choice over. Only these two land
 // here, so only they get a picker — every other category's aiTaskType already names its operation.
 const CAT_PICKABLE = ["sequential", "summarize", "classify", "recommend", "forecast", "extract", "search_qa"];
@@ -2693,11 +2771,26 @@ function catIsAmbiguous(cat){ return cat === "sequential"; }
 // No longer gated on catIsAmbiguous(): every use case may pick a renderer now. catIsAmbiguous() still
 // exists and still means what it says — agent/decide describes a way of working with people, not an
 // operation on data — and it is what decides whether the explanation box is shown.
+// null = nothing chosen yet, which only an agent/decide UC can be: it has no default format (see
+// renderPlayCtl()).
 function effectiveCat(cat){
   const p = window._catPick;
-  return (p && CAT_PICKABLE.indexOf(p) !== -1) ? p : cat;
+  if (p && CAT_PICKABLE.indexOf(p) !== -1) return p;
+  return catIsAmbiguous(cat) ? null : cat;
 }
-function pickRenderer(v){ window._catPick = v; renderOutput(); }
+// the Prompt follows the pick, so both the controls and the output are redrawn
+function pickRenderer(v){ window._catPick = v || null; renderPlayCtl(); renderOutput(); }
+// One generic line per format — what kind of work it fits. Shown where an agent/decide UC must choose,
+// and under a format another category is trying. No domain words: this tool runs across clients.
+const FORMAT_FIT = {
+  sequential:"จับคู่รายการในตาราง (CSV) กับเอกสารที่อ้างถึงรายการนั้น — งานตรวจ/กระทบยอดระหว่างรายการกับเอกสาร",
+  summarize:"สรุปภาพรวมของตารางหรือเอกสาร — จำนวนต่อกลุ่ม การกระจายของตัวเลข ค่าเฉลี่ยต่อกลุ่ม",
+  classify:"จัดรายการเข้ากลุ่มตามหมวดหมู่ — แต่ละกลุ่มมีกี่รายการ มีตัวอย่างอะไรบ้าง",
+  recommend:"จัดลำดับรายการตามคะแนนหรือมูลค่า — อะไรควรทำก่อน",
+  forecast:"ดูแนวโน้มของตัวเลขตามช่วงเวลา (รายเดือน / รายไตรมาส)",
+  extract:"ดึงฟิลด์สำคัญออกจากรายการหรือเอกสาร มาเป็นตาราง",
+  search_qa:"ค้นข้อความในเอกสารหลายย่อหน้า พร้อมบอกว่ามาจากตรงไหน"
+};
 
 const CAT_DATA_CONTRACT = {
   sequential: { exts:[".csv",".txt",".md"], pair:true,
@@ -3175,11 +3268,8 @@ function buildPortfolioExport(rows, s, loaded, now){
   };
 }
 function exportPortfolioJSON(){
-  const data=buildPortfolioExport(PF_ROWS, portfolioSummary(PF_ROWS, PORT_LOADED||[]), PORT_LOADED||[]);
-  const a=document.createElement("a");
-  a.href=URL.createObjectURL(new Blob([JSON.stringify(data,null,2)],{type:"application/json"}));
-  a.download="Portfolio_export.json";
-  document.body.appendChild(a); a.click(); a.remove();
+  downloadJSON(buildPortfolioExport(PF_ROWS, portfolioSummary(PF_ROWS, PORT_LOADED||[]), PORT_LOADED||[]),
+    "Portfolio_export.json");
 }
 function exportPortfolioPDF(){
   const s=portfolioSummary(PF_ROWS, PORT_LOADED||[]), head=document.getElementById("printHead");
